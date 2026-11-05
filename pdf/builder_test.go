@@ -143,7 +143,7 @@ func TestBuildRejectsEmptyInput(t *testing.T) {
 // TestBuildToMatchesBuild: đường streaming và đường in-memory phải cho ra CÙNG
 // bytes — nếu lệch thì object/xref của một trong hai đường đang sai.
 func TestBuildToMatchesBuild(t *testing.T) {
-	in := testInput(2)
+	in := testInput(3)
 	want, err := NewBuilder().Build(in)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
