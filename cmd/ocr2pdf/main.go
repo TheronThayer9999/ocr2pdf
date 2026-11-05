@@ -1,4 +1,4 @@
-// Command ocr2pdf là CLI mẫu cho package ocr2pdf.
+// Command ocr2pdf is a reference CLI for the ocr2pdf package.
 package main
 
 import (
@@ -12,15 +12,15 @@ import (
 )
 
 func main() {
-	in := flag.String("in", "", "ảnh (png/jpg) hoặc PDF đầu vào")
-	out := flag.String("out", "", "PDF đầu ra (mặc định: x.png -> x.pdf, x.pdf -> x-searchable.pdf)")
-	lang := flag.String("lang", "eng", "ngôn ngữ tesseract: eng, vie, vie+eng")
-	psm := flag.Int("psm", 3, "page segmentation mode của tesseract")
-	dpi := flag.Float64("dpi", 0, "ép DPI (0 = tự đọc từ tệp / khổ trang PDF)")
-	conf := flag.Float64("conf", 30, "bỏ qua từ có confidence thấp hơn ngưỡng")
-	tess := flag.String("tesseract", "", "đường dẫn tesseract.exe (mặc định: tự tìm)")
-	font := flag.String("font", "", "file TTF cho lớp text ẩn (mặc định: font hệ thống)")
-	native := flag.Bool("native", false, "để tesseract tự xuất PDF (chỉ với ảnh)")
+	in := flag.String("in", "", "input image (png/jpg) or PDF")
+	out := flag.String("out", "", "output PDF (default: x.png -> x.pdf, x.pdf -> x-searchable.pdf)")
+	lang := flag.String("lang", "eng", "tesseract language: eng, vie, vie+eng")
+	psm := flag.Int("psm", 3, "tesseract page segmentation mode")
+	dpi := flag.Float64("dpi", 0, "force a DPI (0 = read from the file / PDF page size)")
+	conf := flag.Float64("conf", 30, "drop words below this confidence")
+	tess := flag.String("tesseract", "", "path to tesseract.exe (default: auto-discovered)")
+	font := flag.String("font", "", "TTF file for the text layer (default: system font)")
+	native := flag.Bool("native", false, "let tesseract write the PDF itself (images only)")
 	flag.Parse()
 
 	if *in == "" {
@@ -49,13 +49,13 @@ func main() {
 	}
 	res, err := run(*in, opts...)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "lỗi:", err)
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	fmt.Println(res)
 }
 
-// warnMissingLanguage nhắc khi traineddata của ngôn ngữ chưa được cài.
+// warnMissingLanguage warns when the traineddata for a language is not installed.
 func warnMissingLanguage(lang string, opts []ocr2pdf.Option) {
 	langs := ocr2pdf.Languages(context.Background(), opts...)
 	if len(langs) == 0 {
@@ -72,7 +72,7 @@ func warnMissingLanguage(lang string, opts []ocr2pdf.Option) {
 		}
 	}
 	if len(missing) > 0 {
-		fmt.Fprintf(os.Stderr, "cảnh báo: chưa có traineddata cho %q (đang có: %s)\n",
+		fmt.Fprintf(os.Stderr, "warning: no traineddata for %q (installed: %s)\n",
 			strings.Join(missing, ", "), strings.Join(langs, ", "))
 	}
 }

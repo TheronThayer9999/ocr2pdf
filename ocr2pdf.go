@@ -37,11 +37,20 @@ type Result struct {
 	Duration time.Duration
 }
 
-// String tóm tắt kết quả trong một dòng, tiện cho CLI và log.
+// String summarizes the result in one line, handy for CLIs and logs.
 func (r Result) String() string {
-	return fmt.Sprintf("%s (%.1f KB) - %d trang, %d dòng, %d từ - %s",
-		r.Output, float64(r.Bytes)/1024, r.Pages, r.Lines, r.Words,
+	return fmt.Sprintf("%s (%.1f KB) - %s, %s, %s - %s",
+		r.Output, float64(r.Bytes)/1024,
+		count(r.Pages, "page"), count(r.Lines, "line"), count(r.Words, "word"),
 		r.Duration.Round(time.Millisecond))
+}
+
+// count formats n with a singular or plural English noun.
+func count(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // Converter điều phối toàn bộ pipeline chuyển đổi.

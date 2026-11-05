@@ -2,45 +2,45 @@
 
 ## Commands
 
-- Build CLI: `go build -o ocr2pdf.exe ./cmd/ocr2pdf`
-- Run: `.\ocr2pdf.exe -in data\scan200.pdf -lang vie` (tự đặt tên `...-searchable.pdf`)
-- Tests (không cần Tesseract): `go test ./...`
-- Một test: `go test ./ocr -run TestTSVParser -v` · `go test ./pdf -run TestBuild -v`
-- Trước khi xong: `go vet ./...`, `gofmt -l .` (phải rỗng), `golangci-lint run ./...`
+- Build the CLI: `go build -o ocr2pdf.exe ./cmd/ocr2pdf`
+- Run: `.\ocr2pdf.exe -in data\scan200.pdf -lang vie` (output is auto-named `...-searchable.pdf`)
+- Tests (no Tesseract needed): `go test ./...`
+- Single test: `go test ./ocr -run TestTSVParser -v` · `go test ./pdf -run TestBuild -v`
+- Before finishing: `go vet ./...`, `gofmt -l .` (must be empty), `golangci-lint run ./...`
 
-## Môi trường (máy này)
+## Environment (this machine)
 
-- Tesseract **không có trong PATH**; binary ở `C:\Program Files\Tesseract-OCR\tesseract.exe`
-  (v5.4, langs: `eng`, `vie`, `osd`). Code tự dò; override bằng `TESSERACT_PATH` hoặc `-tesseract`.
-- **Đừng sửa file nguồn bằng PowerShell** (`Get-Content | Set-Content`): PS 5.1 ghi lại encoding và
-  biến tiếng Việt trong comment/string thành mojibake. Dùng tool edit/write.
-- Có sẵn để kiểm chứng: Python + `pymupdf` (đọc text/rect ảnh của PDF), `PIL`; `pdfcpu` (Go) để validate.
-  Không có poppler/pdftoppm.
-- `go.mod` ghim `go 1.26.0` vì `pdfcpu` và `x/image` yêu cầu 1.26; đừng nâng lên 1.27.
-  golangci-lint 2.14 build bằng go1.26 nên trên máy Go 1.27 nó panic
-  `file requires newer Go version go1.27`; chạy bằng `$env:GOTOOLCHAIN="go1.26.5"; golangci-lint run ./...`.
-- Input mẫu: `data/image_one.png`, `data/scan200.pdf` (A4 200 dpi).
+- Tesseract is **not on PATH**; the binary lives at `C:\Program Files\Tesseract-OCR\tesseract.exe`
+  (v5.4, langs: `eng`, `vie`, `osd`). The code auto-discovers it; override with `TESSERACT_PATH` or `-tesseract`.
+- **Never edit source files with PowerShell** (`Get-Content | Set-Content`): PS 5.1 re-encodes and turns
+  Vietnamese characters in comments/strings into mojibake. Use the edit/write tools instead.
+- Available for verification: Python + `pymupdf` (read text/rects/images of a PDF), `PIL`; `pdfcpu` (Go) to validate.
+  No poppler/pdftoppm.
+- `go.mod` pins `go 1.26.0` because `pdfcpu` and `x/image` require 1.26; do not raise it to 1.27.
+  golangci-lint 2.14 is built with go1.26, so on a Go 1.27 machine it panics with
+  `file requires newer Go version go1.27`; run it as `$env:GOTOOLCHAIN="go1.26.5"; golangci-lint run ./...`.
+- Sample inputs: `data/image_one.png`, `data/scan200.pdf` (A4 200 dpi).
 
-## Kiến trúc — giữ đúng ranh giới
+## Architecture — keep the boundaries
 
-- Pipeline: `imaging.Loader` → `ocr.Engine` → `pdf.Builder`; `Converter` (package gốc) **chỉ** phụ thuộc interface.
-- Các package public có chủ đích (module để người khác import): `ocr/`, `imaging/`, `pdf/`, `fonts/`. Không dùng `internal/`.
-- Thêm định dạng đầu vào = thêm `imaging.Loader`; thêm OCR engine = implement `ocr.Engine` (truyền qua `WithEngine`).
-- Module path `github.com/TheronThayer9999/ocr2pdf` trùng với repo GitHub; fork sang tài khoản khác thì đổi `module` trong `go.mod` + rewrite import.
+- Pipeline: `imaging.Loader` → `ocr.Engine` → `pdf.Builder`; `Converter` (root package) depends **only** on interfaces.
+- Public packages on purpose (so others can import the module): `ocr/`, `imaging/`, `pdf/`, `fonts/`. No `internal/`.
+- New input format = new `imaging.Loader`; new OCR engine = implement `ocr.Engine` (pass it via `WithEngine`).
+- Module path `github.com/TheronThayer9999/ocr2pdf` matches the GitHub repo; forking to another account means changing `module` in `go.mod` and rewriting imports.
 
-## Bất biến của lớp PDF (dễ làm hỏng)
+## PDF layer invariants (easy to break)
 
-- Font nhúng là Type0 / CIDFontType2 / Identity-H, **CID = glyph id**. `fonts.Font.Subset` trả `remap`
-  (glyph cũ → mới) và phải áp dụng ở **cả 3 chỗ**: mảng `/W`, CMap `/ToUnicode`, và chuỗi hex trong content stream.
-- `FontDescriptor` (`Ascent`, `Descent`, `CapHeight`, `FontBBox`) tính theo **1/1000 em**, không phải font unit.
-- Kích thước trang = `pixel × 72 / DPI`. DPI lấy từ PNG `pHYs` / JPEG JFIF, không có thì 200;
-  với PDF thì `imageWidth / (pageWidthPoint / 72)`.
-- Text ẩn dùng `3 Tr`; mỗi dòng chung cỡ chữ + baseline, mỗi từ dùng `Tz` để khớp bề rộng hộp OCR.
-- Ảnh JPEG phải chèn thẳng (`/Filter /DCTDecode`), không giải mã rồi nén lại; ảnh khác đi đường
-  PNG-predictor (`/Predictor 15`) trong `pdf/image.go`.
+- The embedded font is Type0 / CIDFontType2 / Identity-H with **CID = glyph id**. `fonts.Font.Subset` returns a `remap`
+  (old glyph → new glyph) that must be applied in **all 3 places**: the `/W` array, the `/ToUnicode` CMap, and the hex string in the content stream.
+- `FontDescriptor` (`Ascent`, `Descent`, `CapHeight`, `FontBBox`) is in **1/1000 em**, not font units.
+- Page size = `pixels × 72 / DPI`. DPI comes from PNG `pHYs` / JPEG JFIF, defaulting to 200;
+  for PDFs it is `imageWidth / (pageWidthPoint / 72)`.
+- Invisible text uses `3 Tr`; a line shares one font size + baseline, and each word uses `Tz` to match the OCR box width.
+- JPEG images must be embedded as-is (`/Filter /DCTDecode`), never decoded and re-compressed; other images go through the
+  PNG-predictor path (`/Predictor 15`) in `pdf/image.go`.
 
-## Giới hạn đã biết
+## Known limitations
 
-- PDF đầu vào phải là bản scan/ảnh (đọc bằng pdfcpu `ExtractImagesRaw`). PDF vector/text trả lỗi yêu cầu rasterize trước.
-- `-lang eng` (mặc định) làm sai dấu tiếng Việt (`trur©c`); `vie` đã cài, dùng khi tài liệu có dấu.
-- Trang ra có kích thước theo ảnh + DPI, không giữ MediaBox gốc của PDF đầu vào.
+- The input PDF must be a scan/image (read with pdfcpu `ExtractImagesRaw`). Vector/text PDFs return an error asking you to rasterize first.
+- `-lang eng` (the default) mangles Vietnamese diacritics (`trur©c`); `vie` is installed, use it for documents with diacritics.
+- Output pages are sized from the image + DPI; the original PDF MediaBox is not preserved.
