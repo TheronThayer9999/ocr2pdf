@@ -99,9 +99,8 @@ func (t *Tesseract) RecognizeFile(ctx context.Context, imagePath string) ([]Line
 	if err != nil {
 		return nil, err
 	}
-	if len(lines) == 0 {
-		return nil, fmt.Errorf("không nhận dạng được từ nào (thử psm khác hoặc hạ ngưỡng confidence)")
-	}
+	// Trang trắng trả danh sách rỗng chứ không phải lỗi: caller tự quyết định
+	// (CLI báo 0 từ, tab Quét ghi 0 từ cho trang đó).
 	return lines, nil
 }
 
