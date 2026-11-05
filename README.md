@@ -5,20 +5,25 @@ into a **PDF with an invisible text layer**: it looks exactly like the original,
 copy and search it like real text.
 
 ```bash
-ocr2pdf.exe -in data\scan200.pdf -lang vie     # -> data\scan200-searchable.pdf
+ocr2pdf.exe -in data\scan200.pdf     # -> data\scan200-searchable.pdf (language auto-detected)
 ```
 
 An A4 scan at 200 dpi (1654×2339) becomes a one-page A4 PDF (595×841 pt), ~278 KB, and copies out
 correct Vietnamese with diacritics.
 
+See [`docs/OVERVIEW.md`](docs/OVERVIEW.md) for the design rationale, architecture and measured behaviour.
+
 ## Features
 
 - OCR through the Tesseract CLI — **no CGO**, no native library dependencies.
+- Input can be a **local path or an `http(s)` URL**; remote files are downloaded to a temp file first.
 - Input can be an **image** (png/jpg/gif) or a **multi-page PDF**; the output PDF has the same page count.
 - JPEG images inside a scanned PDF are embedded as-is (`DCTDecode`): no re-encoding, no quality loss.
 - Other images are compressed with zlib + a PNG-style filter (`Predictor 15`), keeping files small.
 - The embedded font is **subset** to the glyphs actually used (~55 KB instead of the full ~1 MB Arial).
 - A complete `ToUnicode` map means copy/search returns the right characters, Vietnamese included (`KỊCH BẢN`).
+- Picks the OCR language automatically: page one is tried with every installed `traineddata` and the
+  highest-confidence language wins, so Vietnamese no longer comes out as `phé phan`.
 
 ## Requirements
 
@@ -47,7 +52,7 @@ go build -o ocr2pdf.exe ./cmd/ocr2pdf
 |---|---|---|
 | `-in` | – | input image (png/jpg/gif) or PDF |
 | `-out` | derived | `x.png` → `x.pdf`; `x.pdf` → `x-searchable.pdf` (never overwrites the input) |
-| `-lang` | `eng` | Tesseract language: `eng`, `vie`, `vie+eng` |
+| `-lang` | `auto` | Tesseract language: `auto` (detect), `eng`, `vie`, `vie+eng` |
 | `-psm` | `3` | page segmentation mode: 3 auto, 6 single block, 7 single line, 11 sparse text |
 | `-dpi` | `0` | force a DPI; 0 = read image metadata (PNG pHYs / JFIF) or derive it from the PDF page size |
 | `-conf` | `30` | drop words below this confidence |
@@ -56,6 +61,8 @@ go build -o ocr2pdf.exe ./cmd/ocr2pdf
 | `-native` | `false` | let Tesseract generate the PDF itself (images only, layout not under our control) |
 
 > `-lang eng` on Vietnamese documents produces mangled characters (`trur©c`, `Phigu`). Use `-lang vie` when the document has diacritics.
+> If copying yields `phé phan` instead of `phê phán`, the OCR ran with `eng` — the PDF text layer is fine, the
+> recognized text is not. The Angular example picks `vie` automatically when the API has that traineddata.
 
 ## Using it as a module
 
@@ -70,6 +77,13 @@ Shortest path — every parameter has a default:
 
 ```go
 res, err := ocr2pdf.Convert("scan.pdf") // -> scan-searchable.pdf
+```
+
+The input can also be a URL; the file is downloaded and the output is named after the
+last path segment (`https://host/files/scan.pdf` → `scan-searchable.pdf`):
+
+```go
+res, err := ocr2pdf.Convert("https://example.com/files/scan.pdf")
 ```
 
 Override parameters when needed:
@@ -116,7 +130,7 @@ Options and their defaults:
 
 | Option | Default |
 |---|---|
-| `WithLanguage` | `eng` |
+| `WithLanguage` | `auto` (detected from page one) |
 | `WithOutput` | `x.png` → `x.pdf`, `x.pdf` → `x-searchable.pdf` |
 | `WithPSM` | `3` |
 | `WithDPI` | `0` (read from the image / PDF page size) |
@@ -150,6 +164,13 @@ A runnable minimal example lives in [`examples/simple/main.go`](examples/simple/
 
 ```bash
 go run ./examples/simple data/scan200.pdf
+```
+
+An HTTP API example (Gin) lives in [`examples/be`](examples/be) — upload a file, get the searchable PDF back:
+
+```bash
+cd examples/be && go run ./cmd
+curl -F "file=@../../data/scan200.pdf" -F "lang=vie" http://localhost:8080/api/convert -o out.pdf
 ```
 
 ## Architecture
@@ -219,5 +240,7 @@ python -c "import pymupdf; d=pymupdf.open(r'data\scan200-searchable.pdf'); print
 
 - The input PDF must be a **scan/image** (every page contains an image). PDFs with only vector/text need
   rasterizing first: `pdftoppm -r 200 in.pdf page`, then feed the `page-*.png` files in.
+- Remote URLs are downloaded to a temp file before OCR (default cap 128 MB; tune
+  `imaging.NewRemoteLoader(...)` via `WithImageLoader`). Redirects are followed, non-2xx responses fail.
 - Text quality depends on the `traineddata` and on how skewed the scan is; deskew first if the image is noticeably tilted.
 - Output pages are sized from the image + DPI; the original PDF MediaBox is not preserved.

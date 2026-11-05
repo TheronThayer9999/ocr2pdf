@@ -3,10 +3,26 @@
 ## Commands
 
 - Build the CLI: `go build -o ocr2pdf.exe ./cmd/ocr2pdf`
-- Run: `.\ocr2pdf.exe -in data\scan200.pdf -lang vie` (output is auto-named `...-searchable.pdf`)
+- Run: `.\ocr2pdf.exe -in data\scan200.pdf` (language is auto-detected; output is auto-named `...-searchable.pdf`)
 - Tests (no Tesseract needed): `go test ./...`
 - Single test: `go test ./ocr -run TestTSVParser -v` · `go test ./pdf -run TestBuild -v`
 - Before finishing: `go vet ./...`, `gofmt -l .` (must be empty), `golangci-lint run ./...`
+
+## Repo layout — three modules
+
+- Root module `github.com/TheronThayer9999/ocr2pdf`: the library, `cmd/ocr2pdf`, and `examples/simple`.
+- `examples/be` is a **separate** Go module (Gin HTTP API) with `replace ... => ../..`, so it compiles against
+  local code. `go test ./...` and CI do **not** cover it — run `cd examples/be; go build ./...; go vet ./...` explicitly.
+- `examples/fe/ocr` is an Angular 22 app (own `package.json`, not a Go module).
+- `gofmt -l .` from the root does walk into `examples/be`.
+
+## Frontend (`examples/fe/ocr`)
+
+- `npm start` → http://localhost:4200 · `npx ng build` · `npx ng test --watch=false` (plain `ng test` stays in watch mode).
+- Angular 22: standalone components, signals, **zoneless** (no zone.js), SSR enabled with prerendering.
+  Browser-only APIs must be guarded (`isPlatformBrowser`, `afterNextRender`) or `ng build` fails.
+- API base URL is hardcoded in `src/app/ocr-api.ts` (`http://localhost:8080`); the API enables CORS for it.
+- Tailwind 4 is wired through `.postcssrc.json` + `@import 'tailwindcss'` in `src/styles.css`.
 
 ## Environment (this machine)
 
@@ -19,11 +35,14 @@
 - `go.mod` pins `go 1.26.0` because `pdfcpu` and `x/image` require 1.26; do not raise it to 1.27.
   golangci-lint 2.14 is built with go1.26, so on a Go 1.27 machine it panics with
   `file requires newer Go version go1.27`; run it as `$env:GOTOOLCHAIN="go1.26.5"; golangci-lint run ./...`.
-- Sample inputs: `data/image_one.png`, `data/scan200.pdf` (A4 200 dpi).
+- Sample inputs: `data/image_one.png`, `data/scan200.pdf` (A4 200 dpi), `examples/simple/demo.png` (Vietnamese).
 
 ## Architecture — keep the boundaries
 
 - Pipeline: `imaging.Loader` → `ocr.Engine` → `pdf.Builder`; `Converter` (root package) depends **only** on interfaces.
+- `imaging.AutoLoader` handles local paths, `imaging.RemoteLoader` downloads `http(s)` inputs to a temp file first.
+- Language defaults to `auto`: page one is OCR'd once per installed `traineddata` and the highest mean
+  confidence wins, so a run costs one extra OCR pass. Explicit `WithLanguage("vie")` skips detection.
 - Public packages on purpose (so others can import the module): `ocr/`, `imaging/`, `pdf/`, `fonts/`. No `internal/`.
 - New input format = new `imaging.Loader`; new OCR engine = implement `ocr.Engine` (pass it via `WithEngine`).
 - Module path `github.com/TheronThayer9999/ocr2pdf` matches the GitHub repo; forking to another account means changing `module` in `go.mod` and rewriting imports.
@@ -42,5 +61,6 @@
 ## Known limitations
 
 - The input PDF must be a scan/image (read with pdfcpu `ExtractImagesRaw`). Vector/text PDFs return an error asking you to rasterize first.
-- `-lang eng` (the default) mangles Vietnamese diacritics (`trur©c`); `vie` is installed, use it for documents with diacritics.
+- `-lang eng` mangles Vietnamese diacritics (`trur©c`, `phê phán` → `phé phan`); the default `auto` avoids it when `vie` is installed.
 - Output pages are sized from the image + DPI; the original PDF MediaBox is not preserved.
+- `ConvertNative` (Tesseract writes the PDF itself) needs a local file and only supports images.
