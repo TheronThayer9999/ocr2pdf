@@ -146,6 +146,12 @@ conv, err := ocr2pdf.New(
 )
 ```
 
+A runnable minimal example lives in [`examples/simple/main.go`](examples/simple/main.go):
+
+```bash
+go run ./examples/simple data/scan200.pdf
+```
+
 ## Architecture
 
 ```
