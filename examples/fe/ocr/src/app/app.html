@@ -1,0 +1,64 @@
+<main class="mx-auto flex min-h-dvh max-w-5xl flex-col gap-4 p-6">
+  <header class="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold text-slate-900">ocr2pdf</h1>
+      <p class="mt-1 text-sm text-slate-500">
+        Pick an image or a scanned PDF — it is sent to the API and the searchable PDF comes back.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <select
+        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+        [value]="lang()"
+        (change)="onLanguage($event)"
+      >
+        @for (option of languageOptions(); track option.code) {
+          <option [value]="option.code">{{ option.label }}</option>
+        }
+      </select>
+
+      <label
+        class="cursor-pointer rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+      >
+        Choose file
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/gif,application/pdf,.pdf"
+          class="hidden"
+          (change)="onFile($event)"
+        />
+      </label>
+    </div>
+  </header>
+
+  @if (missingVietnamese()) {
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      The API has no <code class="font-mono">vie</code> traineddata, so Vietnamese diacritics will be
+      lost when copying (<em>phê phán</em> → <em>phé phan</em>). Install
+      <code class="font-mono">vie.traineddata</code> on the server to fix it.
+    </div>
+  }
+
+  @if (error(); as message) {
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {{ message }}
+    </div>
+  }
+
+  <section
+    class="rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 transition"
+    [class.border-slate-400]="busy()"
+    (dragover)="onDragOver($event)"
+    (drop)="onDrop($event)"
+  >
+    @if (busy()) {
+      <span class="font-medium text-slate-700">Running OCR…</span>
+      <span class="ml-1">this can take a few seconds per page.</span>
+    } @else {
+      Drop an image or PDF here, or use the button above.
+    }
+  </section>
+
+  <app-pdf-viewer [src]="result()" [fileName]="fileName()" height="70vh" />
+</main>
