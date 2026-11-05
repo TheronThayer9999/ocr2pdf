@@ -1,6 +1,8 @@
 // Command simple is the smallest possible use of the ocr2pdf module.
 //
-//	go run ./examples/simple data/scan200.pdf
+// Run it from the repository root; the path is relative to your current directory:
+//
+//	go run ./examples/simple examples/simple/demo.png
 package main
 
 import (
@@ -13,7 +15,8 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatalf("usage: go run ./examples/simple <image-or-pdf>")
+		log.Fatal("usage: go run ./examples/simple <image-or-pdf>\n" +
+			"example: go run ./examples/simple examples/simple/demo.png")
 	}
 
 	// Everything has a default: output name, DPI, font, Tesseract binary.
@@ -24,5 +27,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println(res) // data/scan200-searchable.pdf (274.2 KB) - 1 page, 23 lines, 173 words - 1.0s
+	fmt.Println(res) // examples/simple/demo.pdf (134.9 KB) - 1 page, 30 lines, 312 words - 607ms
 }
