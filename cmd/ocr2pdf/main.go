@@ -14,7 +14,7 @@ import (
 func main() {
 	in := flag.String("in", "", "input image (png/jpg) or PDF")
 	out := flag.String("out", "", "output PDF (default: x.png -> x.pdf, x.pdf -> x-searchable.pdf)")
-	lang := flag.String("lang", "eng", "tesseract language: eng, vie, vie+eng")
+	lang := flag.String("lang", "auto", "tesseract language: auto (detect), eng, vie, vie+eng")
 	psm := flag.Int("psm", 3, "tesseract page segmentation mode")
 	dpi := flag.Float64("dpi", 0, "force a DPI (0 = read from the file / PDF page size)")
 	conf := flag.Float64("conf", 30, "drop words below this confidence")
@@ -57,6 +57,10 @@ func main() {
 
 // warnMissingLanguage warns when the traineddata for a language is not installed.
 func warnMissingLanguage(lang string, opts []ocr2pdf.Option) {
+	if lang == "" || strings.EqualFold(lang, "auto") {
+		return
+	}
+
 	langs := ocr2pdf.Languages(context.Background(), opts...)
 	if len(langs) == 0 {
 		return

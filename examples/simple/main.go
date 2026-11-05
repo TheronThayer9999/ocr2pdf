@@ -20,9 +20,9 @@ func main() {
 	}
 
 	// Everything has a default: output name, DPI, font, Tesseract binary.
-	// Add options when you need them, for example:
-	//   ocr2pdf.WithLanguage("vie"), ocr2pdf.WithOutput("result.pdf")
-	res, err := ocr2pdf.Convert(os.Args[1])
+	// "vie" keeps Vietnamese diacritics when copying — the default "eng" turns
+	// "phê phán" into "phé phan". Drop the option for English-only documents.
+	res, err := ocr2pdf.Convert(os.Args[1], ocr2pdf.WithLanguage("vie"))
 	if err != nil {
 		log.Fatal(err)
 	}

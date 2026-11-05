@@ -7,19 +7,26 @@ import (
 	"strings"
 )
 
-// AutoLoader chọn loader theo định dạng tệp (ảnh hoặc PDF).
+// AutoLoader chọn loader theo định dạng tệp (ảnh hoặc PDF), kể cả URL http(s).
 type AutoLoader struct {
-	Image *FileLoader
-	PDF   *PDFLoader
+	Image  *FileLoader
+	PDF    *PDFLoader
+	Remote *RemoteLoader
 }
 
 // NewAutoLoader tạo loader tự nhận dạng đầu vào.
 func NewAutoLoader() *AutoLoader {
-	return &AutoLoader{Image: NewFileLoader(), PDF: NewPDFLoader()}
+	l := &AutoLoader{Image: NewFileLoader(), PDF: NewPDFLoader()}
+	l.Remote = NewRemoteLoader(l)
+	return l
 }
 
 // Load điều phối sang loader phù hợp.
 func (l *AutoLoader) Load(ctx context.Context, path string) ([]Page, error) {
+	if l.Remote != nil && IsRemote(path) {
+		return l.Remote.Load(ctx, path)
+	}
+
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".pdf":
 		return l.PDF.Load(ctx, path)

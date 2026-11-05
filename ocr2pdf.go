@@ -13,10 +13,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/TheronThayer9999/ocr2pdf/fonts"
 	"github.com/TheronThayer9999/ocr2pdf/imaging"
@@ -30,6 +34,7 @@ var ErrNativeUnsupported = errors.New("engine hiện tại không hỗ trợ xu�
 // Result mô tả kết quả một lần chuyển đổi.
 type Result struct {
 	Output   string
+	Language string // ngôn ngữ OCR thực tế đã dùng (rỗng nếu engine tự quyết)
 	Pages    int
 	Lines    int
 	Words    int
@@ -39,10 +44,16 @@ type Result struct {
 
 // String summarizes the result in one line, handy for CLIs and logs.
 func (r Result) String() string {
-	return fmt.Sprintf("%s (%.1f KB) - %s, %s, %s - %s",
-		r.Output, float64(r.Bytes)/1024,
-		count(r.Pages, "page"), count(r.Lines, "line"), count(r.Words, "word"),
-		r.Duration.Round(time.Millisecond))
+	parts := []string{
+		fmt.Sprintf("%s (%.1f KB)", r.Output, float64(r.Bytes)/1024),
+		fmt.Sprintf("%s, %s, %s",
+			count(r.Pages, "page"), count(r.Lines, "line"), count(r.Words, "word")),
+	}
+	if r.Language != "" {
+		parts = append(parts, r.Language)
+	}
+	parts = append(parts, r.Duration.Round(time.Millisecond).String())
+	return strings.Join(parts, " - ")
 }
 
 // count formats n with a singular or plural English noun.
@@ -68,7 +79,16 @@ type Converter struct {
 	language        string
 	psm             int
 	minConfidence   float64
+
+	// tạo engine theo ngôn ngữ; nil khi người dùng tự truyền engine
+	newEngine func(lang string) (ocr.Engine, error)
 }
+
+// autoLanguage bật chế độ tự dò ngôn ngữ từ nội dung trang đầu.
+const autoLanguage = "auto"
+
+// maxLanguageCandidates giới hạn số lần OCR thử khi dò ngôn ngữ.
+const maxLanguageCandidates = 4
 
 // Option cấu hình Converter.
 type Option func(*Converter)
@@ -114,7 +134,9 @@ func WithTesseractBinary(path string) Option {
 	return func(c *Converter) { c.tesseractBinary = path }
 }
 
-// WithLanguage đặt ngôn ngữ OCR, ví dụ "eng", "vie", "vie+eng".
+// WithLanguage đặt ngôn ngữ OCR: "eng", "vie", "vie+eng"...
+// Mặc định là "auto": chạy thử trang đầu bằng từng traineddata đã cài rồi
+// chọn ngôn ngữ có confidence cao nhất (tốn thêm một lượt OCR cho trang đầu).
 func WithLanguage(lang string) Option {
 	return func(c *Converter) { c.language = lang }
 }
@@ -132,7 +154,7 @@ func WithMinConfidence(v float64) Option {
 // New tạo Converter với các thành phần mặc định, cho phép ghi đè qua Option.
 func New(opts ...Option) (*Converter, error) {
 	c := &Converter{
-		language: "eng",
+		language: autoLanguage,
 		psm:      3,
 	}
 	for _, opt := range opts {
@@ -149,19 +171,24 @@ func New(opts ...Option) (*Converter, error) {
 		c.fonts = fonts.NewTTFLoader()
 	}
 	if c.engine == nil {
-		engine, err := ocr.NewTesseract(
-			ocr.NewPathFinder(c.tesseractBinary),
-			ocr.ExecRunner{},
-			ocr.NewTSVParser(c.minConfidence),
-			ocr.WithLanguage(c.language),
-			ocr.WithPSM(c.psm),
-		)
-		if err != nil {
+		c.newEngine = c.tesseractEngine
+		// Tạo thử một engine để báo lỗi sớm khi thiếu tesseract.
+		if _, err := c.newEngine("eng"); err != nil {
 			return nil, err
 		}
-		c.engine = engine
 	}
 	return c, nil
+}
+
+// tesseractEngine tạo engine Tesseract cho một ngôn ngữ cụ thể.
+func (c *Converter) tesseractEngine(lang string) (ocr.Engine, error) {
+	return ocr.NewTesseract(
+		ocr.NewPathFinder(c.tesseractBinary),
+		ocr.ExecRunner{},
+		ocr.NewTSVParser(c.minConfidence),
+		ocr.WithLanguage(lang),
+		ocr.WithPSM(c.psm),
+	)
 }
 
 // Convert đọc inputPath (ảnh hoặc PDF) và ghi PDF kết quả ra outputPath.
@@ -199,13 +226,21 @@ func (c *Converter) Render(ctx context.Context, inputPath string) ([]byte, Resul
 		return nil, Result{}, err
 	}
 
-	out := pdf.Input{Font: font, Pages: make([]pdf.Page, 0, len(pages))}
-	res := Result{Pages: len(pages)}
+	engine, language, firstPageLines, err := c.prepareEngine(ctx, pages)
+	if err != nil {
+		return nil, Result{}, err
+	}
 
-	for _, page := range pages {
-		lines, err := c.engine.Recognize(ctx, page.Image)
-		if err != nil {
-			return nil, Result{}, fmt.Errorf("OCR trang %d: %w", len(out.Pages)+1, err)
+	out := pdf.Input{Font: font, Pages: make([]pdf.Page, 0, len(pages))}
+	res := Result{Pages: len(pages), Language: language}
+
+	for i, page := range pages {
+		lines := firstPageLines
+		if i > 0 || lines == nil {
+			lines, err = engine.Recognize(ctx, page.Image)
+			if err != nil {
+				return nil, Result{}, fmt.Errorf("OCR trang %d: %w", i+1, err)
+			}
 		}
 		dpi := page.DPI
 		if c.dpi > 0 {
@@ -239,8 +274,16 @@ func (c *Converter) Render(ctx context.Context, inputPath string) ([]byte, Resul
 }
 
 // ConvertNative để engine tự xuất PDF (nhanh, không cần font, chỉ hỗ trợ ảnh).
+// Engine cần file cục bộ nên URL phải được tải về trước.
 func (c *Converter) ConvertNative(ctx context.Context, imagePath, outputPath string) (Result, error) {
-	renderer, ok := c.engine.(ocr.PDFRenderer)
+	if imaging.IsRemote(imagePath) {
+		return Result{}, errors.New("ConvertNative cần file cục bộ: hãy tải ảnh về trước, hoặc dùng Convert/Render")
+	}
+	engine, language, _, err := c.prepareEngine(ctx, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	renderer, ok := engine.(ocr.PDFRenderer)
 	if !ok {
 		return Result{}, ErrNativeUnsupported
 	}
@@ -254,7 +297,7 @@ func (c *Converter) ConvertNative(ctx context.Context, imagePath, outputPath str
 	if err := renderer.RenderPDF(ctx, imagePath, outputPath); err != nil {
 		return Result{}, err
 	}
-	res := Result{Output: outputPath, Pages: 1, Duration: time.Since(start)}
+	res := Result{Output: outputPath, Language: language, Pages: 1, Duration: time.Since(start)}
 	if info, err := os.Stat(outputPath); err == nil {
 		res.Bytes = int(info.Size())
 	}
@@ -263,7 +306,15 @@ func (c *Converter) ConvertNative(ctx context.Context, imagePath, outputPath str
 
 // Languages trả về các traineddata đang cài (rỗng nếu engine không hỗ trợ).
 func (c *Converter) Languages(ctx context.Context) []string {
-	reporter, ok := c.engine.(ocr.LanguageReporter)
+	engine := c.engine
+	if engine == nil {
+		probe, err := c.newEngine("eng")
+		if err != nil {
+			return nil
+		}
+		engine = probe
+	}
+	reporter, ok := engine.(ocr.LanguageReporter)
 	if !ok {
 		return nil
 	}
@@ -313,13 +364,148 @@ func Languages(ctx context.Context, opts ...Option) []string {
 
 // DefaultOutputPath đặt tên file kết quả, tránh ghi đè lên PDF đầu vào:
 // x.png -> x.pdf, x.pdf -> x-searchable.pdf.
+// Với URL, tên file lấy từ đoạn cuối đường dẫn và ghi vào thư mục hiện tại.
 func DefaultOutputPath(inputPath string) string {
+	if imaging.IsRemote(inputPath) {
+		return searchableName(remoteName(inputPath))
+	}
 	ext := strings.ToLower(filepath.Ext(inputPath))
 	base := strings.TrimSuffix(inputPath, filepath.Ext(inputPath))
 	if ext == ".pdf" {
 		return base + "-searchable.pdf"
 	}
 	return base + ".pdf"
+}
+
+// remoteName lấy tên file từ URL; không có thì dùng "input".
+func remoteName(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "input"
+	}
+	name := path.Base(u.Path)
+	if name == "" || name == "." || name == "/" {
+		return "input"
+	}
+	return name
+}
+
+// searchableName thêm hậu tố -searchable cho tên file PDF.
+func searchableName(name string) string {
+	ext := strings.ToLower(path.Ext(name))
+	base := strings.TrimSuffix(name, path.Ext(name))
+	if ext == ".pdf" {
+		return base + "-searchable.pdf"
+	}
+	return base + ".pdf"
+}
+
+// prepareEngine chọn engine và ngôn ngữ cho lần chạy này.
+// Nếu đang ở chế độ auto, nó OCR thử trang đầu để dò ngôn ngữ và trả kèm kết quả
+// của lần thắng, để Render không phải chạy lại trang đầu.
+func (c *Converter) prepareEngine(ctx context.Context, pages []imaging.Page) (ocr.Engine, string, []ocr.Line, error) {
+	if c.engine != nil {
+		lang := c.language
+		if isAuto(lang) {
+			lang = ""
+		}
+		return c.engine, lang, nil, nil
+	}
+
+	if !isAuto(c.language) {
+		engine, err := c.newEngine(c.language)
+		return engine, c.language, nil, err
+	}
+
+	if len(pages) == 0 {
+		engine, err := c.newEngine("eng")
+		return engine, "eng", nil, err
+	}
+
+	lang, lines := c.detectLanguage(ctx, pages[0].Image)
+	engine, err := c.newEngine(lang)
+	return engine, lang, lines, err
+}
+
+// detectLanguage chạy thử OCR trang đầu bằng từng traineddata đã cài và chọn
+// ngôn ngữ có confidence trung bình cao nhất.
+func (c *Converter) detectLanguage(ctx context.Context, img image.Image) (string, []ocr.Line) {
+	candidates := c.candidateLanguages(ctx)
+	if len(candidates) == 0 {
+		return "eng", nil
+	}
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+
+	best, bestScore := "", -1.0
+	var bestLines []ocr.Line
+	for _, lang := range candidates {
+		engine, err := c.newEngine(lang)
+		if err != nil {
+			continue
+		}
+		lines, err := engine.Recognize(ctx, img)
+		if err != nil || len(lines) == 0 {
+			continue
+		}
+		if score := meanConfidence(lines); score > bestScore {
+			best, bestScore, bestLines = lang, score, lines
+		}
+	}
+	if best == "" {
+		return candidates[0], nil
+	}
+	return best, bestLines
+}
+
+// candidateLanguages liệt kê các traineddata đã cài (bỏ "osd") để đem ra thử.
+func (c *Converter) candidateLanguages(ctx context.Context) []string {
+	engine, err := c.newEngine("eng")
+	if err != nil {
+		return nil
+	}
+	reporter, ok := engine.(ocr.LanguageReporter)
+	if !ok {
+		return nil
+	}
+	langs, err := reporter.Languages(ctx)
+	if err != nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(langs))
+	for _, lang := range langs {
+		if lang == "" || lang == "osd" {
+			continue
+		}
+		out = append(out, lang)
+	}
+	if len(out) > maxLanguageCandidates {
+		out = out[:maxLanguageCandidates]
+	}
+	return out
+}
+
+// meanConfidence tính confidence trung bình, có trọng số theo độ dài từ.
+func meanConfidence(lines []ocr.Line) float64 {
+	var weighted, total float64
+	for _, ln := range lines {
+		for _, w := range ln.Words {
+			n := float64(utf8.RuneCountInString(w.Text))
+			weighted += w.Conf * n
+			total += n
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return weighted / total
+}
+
+// isAuto cho biết ngôn ngữ có ở chế độ tự dò hay không.
+func isAuto(lang string) bool {
+	return lang == "" || strings.EqualFold(lang, autoLanguage)
 }
 
 // toPDFLines chuyển toạ độ pixel của OCR sang point (scale = 72/dpi), giữ nguyên thứ tự đọc.
