@@ -1,0 +1,12 @@
+*.exe
+
+# IDE
+.idea/
+
+# đầu ra sinh ra khi chạy thử
+data/*-searchable.pdf
+data/image_one.pdf
+data/scan200.jpg
+
+# phụ thuộc frontend (examples/fe)
+node_modules/
