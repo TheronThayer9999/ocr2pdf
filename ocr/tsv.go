@@ -81,15 +81,16 @@ func (p *TSVParser) parseWord(fields []string) (Word, bool) {
 		return Word{}, false
 	}
 	left, errLeft := strconv.Atoi(fields[6])
+	top, errTop := strconv.Atoi(fields[7])
 	width, errWidth := strconv.Atoi(fields[8])
 	height, errHeight := strconv.Atoi(fields[9])
-	if errLeft != nil || errWidth != nil || errHeight != nil {
+	if errLeft != nil || errTop != nil || errWidth != nil || errHeight != nil {
 		return Word{}, false
 	}
 	if width <= 0 || height <= 0 {
 		return Word{}, false
 	}
-	return Word{Text: text, Left: left, Width: width, Conf: conf}, true
+	return Word{Text: text, Left: left, Top: top, Width: width, Height: height, Conf: conf}, true
 }
 
 // grow nới hộp dòng để bao trọn một từ (dùng khi dòng được tạo từ chính các từ).

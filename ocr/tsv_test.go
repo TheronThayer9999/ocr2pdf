@@ -31,7 +31,7 @@ func TestTSVParserGroupsWordsIntoLines(t *testing.T) {
 	if len(first.Words) != 3 {
 		t.Fatalf("số từ dòng 1 = %d, muốn 3", len(first.Words))
 	}
-	if w := first.Words[0]; w.Left != 296 || w.Width != 61 || w.Conf != 92.3 {
+	if w := first.Words[0]; w.Left != 296 || w.Top != 88 || w.Width != 61 || w.Height != 26 || w.Conf != 92.3 {
 		t.Errorf("từ đầu = %+v", w)
 	}
 }

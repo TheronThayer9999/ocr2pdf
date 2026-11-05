@@ -8,10 +8,12 @@ import (
 
 // Word là một từ đã nhận dạng, kèm hộp bao theo pixel (gốc trên-trái).
 type Word struct {
-	Text  string
-	Left  int
-	Width int
-	Conf  float64
+	Text   string
+	Left   int
+	Top    int
+	Width  int
+	Height int
+	Conf   float64
 }
 
 // Line là một dòng text; các từ trong dòng dùng chung baseline và cỡ chữ.
