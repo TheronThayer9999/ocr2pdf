@@ -139,3 +139,61 @@ func TestBuildRejectsEmptyInput(t *testing.T) {
 		t.Fatal("muốn lỗi khi thiếu font")
 	}
 }
+
+// TestBuildToMatchesBuild: đường streaming và đường in-memory phải cho ra CÙNG
+// bytes — nếu lệch thì object/xref của một trong hai đường đang sai.
+func TestBuildToMatchesBuild(t *testing.T) {
+	in := testInput(2)
+	want, err := NewBuilder().Build(in)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	sb, ok := NewBuilder().(StreamingBuilder)
+	if !ok {
+		t.Fatal("builder mặc định không hỗ trợ BuildTo")
+	}
+	var got bytes.Buffer
+	if err := sb.BuildTo(&got, in); err != nil {
+		t.Fatalf("BuildTo: %v", err)
+	}
+	if !bytes.Equal(got.Bytes(), want) {
+		t.Fatalf("BuildTo khác Build (%d vs %d bytes)", got.Len(), len(want))
+	}
+}
+
+// TestBuildToLoadsImageOnlyWhenWritingPage khoá đúng mục tiêu của BuildTo: ảnh
+// được nạp qua Open tại lúc ghi trang, không nạp sẵn cả tài liệu.
+func TestBuildToLoadsImageOnlyWhenWritingPage(t *testing.T) {
+	in := testInput(2)
+	calls := 0
+	for i := range in.Pages {
+		in.Pages[i].Image = Image{
+			DPI:    100,
+			Width:  100,
+			Height: 200,
+			Open: func() (Image, error) {
+				calls++
+				return Image{Data: testImage(100, 200), DPI: 100}, nil
+			},
+		}
+	}
+	sb := NewBuilder().(StreamingBuilder)
+	if err := sb.BuildTo(&bytes.Buffer{}, in); err != nil {
+		t.Fatalf("BuildTo: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("Open gọi %d lần, muốn 2 (mỗi trang một lần)", calls)
+	}
+}
+
+func TestBuildToPropagatesOpenError(t *testing.T) {
+	in := testInput(1)
+	in.Pages[0].Image = Image{DPI: 100, Width: 100, Height: 200, Open: func() (Image, error) {
+		return Image{}, errors.New("mất ảnh")
+	}}
+	sb := NewBuilder().(StreamingBuilder)
+	if err := sb.BuildTo(&bytes.Buffer{}, in); err == nil {
+		t.Fatal("muốn lỗi khi Open hỏng")
+	}
+}

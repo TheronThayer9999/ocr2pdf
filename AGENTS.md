@@ -40,6 +40,10 @@
 ## Architecture — keep the boundaries
 
 - Pipeline: `imaging.Loader` → `ocr.Engine` → `pdf.Builder`; `Converter` (root package) depends **only** on interfaces.
+- `pdf.Builder` returns the whole PDF as `[]byte`; `pdf.StreamingBuilder` (`BuildTo(io.Writer, Input)`)
+  is the optional long-document path: it writes object by object and calls `pdf.Image.Open` just
+  before writing that page, so RAM stays O(one page). Keep both in sync — `Build` is `BuildTo` into
+  a `bytes.Buffer`.
 - `imaging.AutoLoader` handles local paths, `imaging.RemoteLoader` downloads `http(s)` inputs to a temp file first.
 - Language defaults to `auto`: page one is OCR'd once per installed `traineddata` and the highest mean
   confidence wins, so a run costs one extra OCR pass. Explicit `WithLanguage("vie")` skips detection.

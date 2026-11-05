@@ -148,6 +148,29 @@ data, res, err := conv.Render(ctx, "scan.png") // returns []byte, writes nothing
 res, err = conv.ConvertNative(ctx, "scan.png", "")
 ```
 
+For very long documents, build the PDF straight to a file instead of holding it in memory.
+`pdf.StreamingBuilder` writes one page at a time and `pdf.Image.Open` loads a page image only
+while its object is being written, so RAM stays proportional to one page, not the document:
+
+```go
+import "github.com/TheronThayer9999/ocr2pdf/pdf"
+
+f, _ := os.Create("out.pdf")
+defer f.Close()
+sb := pdf.NewBuilder().(pdf.StreamingBuilder)
+err := sb.BuildTo(f, pdf.Input{
+	Font: font,
+	Pages: []pdf.Page{{
+		Image: pdf.Image{DPI: 200, Width: 1654, Height: 2339, Open: func() (pdf.Image, error) {
+			data, err := os.ReadFile("page-1.jpg")
+			return pdf.Image{DPI: 200, Width: 1654, Height: 2339,
+				Encoded: data, Encoding: pdf.EncodingJPEG}, err
+		}},
+		Lines: lines,
+	}},
+})
+```
+
 Swapping components (dependency injection) — `Converter` depends only on interfaces:
 
 ```go

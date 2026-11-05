@@ -3,6 +3,7 @@ package pdf
 
 import (
 	"image"
+	"io"
 	"strings"
 
 	"github.com/TheronThayer9999/ocr2pdf/fonts"
@@ -24,6 +25,16 @@ type Image struct {
 	DPI      float64
 	Encoded  []byte   // dữ liệu nén sẵn (nếu có)
 	Encoding Encoding // định dạng của Encoded
+
+	// Width/Height là kích thước pixel của ảnh. Bắt buộc khi Data nil (ảnh JPEG
+	// nhúng thẳng chỉ cần header); 0 thì builder lấy từ Data.Bounds().
+	Width, Height int
+
+	// Open nạp nội dung ảnh theo yêu cầu. Khi khác nil, builder gọi Open() thay
+	// cho Data/Encoded — nhờ đó dựng được tài liệu 300 trang mà RAM chỉ giữ một
+	// ảnh tại một thời điểm. Image trả về phải có Data hoặc Encoded (+ Width/
+	// Height) và không được đặt Open.
+	Open func() (Image, error)
 }
 
 // Word là một từ cần đặt lên lớp text ẩn (toạ độ point, gốc trên-trái).
@@ -64,4 +75,11 @@ type Input struct {
 // Builder dựng nội dung file PDF từ Input.
 type Builder interface {
 	Build(in Input) ([]byte, error)
+}
+
+// StreamingBuilder là khả năng tuỳ chọn: dựng thẳng ra io.Writer thay vì giữ
+// toàn bộ tệp trong RAM. Dùng cho tài liệu dài — ảnh trang được nạp qua
+// Image.Open lần lượt và giải phóng ngay sau khi ghi xong object của trang.
+type StreamingBuilder interface {
+	BuildTo(w io.Writer, in Input) error
 }
